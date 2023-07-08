@@ -44,7 +44,12 @@ class Auth
                 $res = $stmt->fetchAll()[0];
                 if ($this->checkPassword($password, $res['fld_password'])){
                     return array("msg"=>"Nyekis");
+                }else{
+                    return $this->gm->response_payload(null, "failed", "Username and password does not match", 400);
+
                 }
+            }else{
+                return $this->gm->response_payload(null, "failed", "Account doesn't exist", 404);
             }
         } catch (\PDOException $e) {
             echo $e->getMessage();
@@ -58,10 +63,14 @@ class Auth
             $stmt = $this->pdo->prepare($sql);
             $data->password = $this->encrypt_password($data->password);
             if ($stmt->execute([$data->fname, $data->lname, $data->email, $data->username, $data->password])) {
-                $msg = $stmt->fetch();
-                return $this->gm->response_payload(null, "success", $msg, 200);
+                $status = $stmt->fetch();
+                if($status['@is_success'] == 1){
+                    return $this->gm->response_payload(null, "success", "Successfully registered!", 200);
+                }else if($status['@is_success'] == 0){
+                    return $this->gm->response_payload($status['is_success'], "failed", "Username or Email is already registered", 400);
+                }
             }
-            return $this->gm->response_payload(null, "failed", "Cannot register user", 401);
+            return $this->gm->response_payload(null, "failed", "Cannot register user", 400);
         } catch (\PDOException $e) {
             echo $e->getMessage();
         }
