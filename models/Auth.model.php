@@ -4,7 +4,7 @@ class Auth
 {
     protected $pdo, $gm;
 
-    public function __construct(\PDO $pdo, GlobalMethods $gm)
+    public function __construct(\PDO $pdo, $gm)
     {
         $this->pdo = $pdo;
         $this->gm = $gm;
@@ -72,15 +72,44 @@ class Auth
             $data->password = $this->encrypt_password($data->password);
             if ($stmt->execute([$data->fname, $data->lname, $data->email, $data->username, $data->password])) {
                 $status = $stmt->fetch();
+                $stmt->closeCursor();
+
                 if ($status['@is_success'] == 1) {
                     return $this->gm->response_payload(null, "success", "Successfully registered!", 200);
                 } else if ($status['@is_success'] == 0) {
-                    return $this->gm->response_payload($status['is_success'], "failed", "Username or Email is already registered", 400);
+                    return $this->gm->response_payload($status['@is_success'], "failed", "Username or Email is already registered", 400);
                 }
             }
+
             return $this->gm->response_payload(null, "failed", "Cannot register user", 400);
         } catch (\PDOException $e) {
             echo $e->getMessage();
+        }
+    }
+
+    public function logout()
+    {
+        $token_check = $this->verifyToken();
+        if ($token_check["is_valid"]) {
+            $jwt = explode(' ', $_SERVER['HTTP_AUTHORIZATION']);
+            if ($jwt[0] != 'Bearer') {
+                return $this->gm->response_payload(null, "failed", "You are not Authorized. Please log in first", 403);
+            } else {
+                $sql = "CALL authLogout(?)";
+
+                try {
+                    $stmt = $this->pdo->prepare($sql);
+                    if ($stmt->execute([$jwt[1]])) {
+                        return $this->gm->response_payload(null, "success", "Logged out successfully", 200);
+                    } else {
+                        return $this->gm->response_payload(null, "failed", "Cannot Log out. Try again later", 401);
+                    }
+                } catch (\PDOException $e) {
+                    echo $e->getMessage();
+                }
+            }
+        } else {
+            $this->gm->response_payload(null, "failed", "You are not Authorized. Please log in first", 403);
         }
     }
 
@@ -100,7 +129,7 @@ class Auth
     {
         $jwt = explode(' ', $_SERVER['HTTP_AUTHORIZATION']);
         if ($jwt[0] != 'Bearer') {
-            return false;
+            return array("is_valid" => false);
         } else {
             $decoded = explode(".", $jwt[1]);
             $payload = json_decode(str_replace(['+', '/', '='], ['-', '_', ''], base64_decode($decoded[1])));
@@ -109,21 +138,23 @@ class Auth
             if ($base64UrlSignature === $decoded[2]) {
                 $sql = "CALL checkToken(?,?,?)";
                 $stmt = $this->pdo->prepare($sql);
-                // echo var_dump($jwt[1]);
                 try {
-                    if ($stmt->execute([ $jwt[1], $payload->fld_personal_id, $payload->exp])) {
+                    if ($stmt->execute([$jwt[1], $payload->fld_personal_id, $payload->exp])) {
                         $res = $stmt->fetch();
-                        if ($res["token_count"] == 1) {
-                            return true;
+                        
+                        if ($res["token_count"] >= 1) {
+                            return array("id" => $payload->fld_personal_id, "is_valid" => true);
                         } else {
-                            return true;
+                            return array("msg"=>"Token not valid","is_valid" => false);
                         }
                     }
+
+                    $stmt->closeCursor();
                 } catch (\PDOException $e) {
                     echo $e->getMessage();
                 }
             } else {
-                return false;
+                return array("msg"=>"gayness","is_valid" => false);
             }
         }
     }
